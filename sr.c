@@ -89,3 +89,50 @@ void A_output(struct msg message)
 
     next_seqnum = (next_seqnum + 1) % SEQ_SPACE;
 }
+
+/* handles incoming acks at sender */
+void A_input(struct pkt packet)
+{
+    if (IsCorrupted(packet)) {
+        if (TRACE > 0) printf("----a: corrupted ack, ignored\n");
+        return;
+    }
+
+    if (IsInWindow(packet.acknum, sender_base, WINDOW_SIZE)) {
+        total_ACKs_received++;
+
+        if (!acked[packet.acknum]) {
+            if (TRACE > 0) printf("----a: ack %d received\n", packet.acknum);
+            acked[packet.acknum] = true;
+            new_ACKs++;
+
+            // move base if this was for the base packet
+            if (packet.acknum == sender_base) {
+                if (TRACE > 1) printf("----a: sliding window\n");
+
+                if (A_timer_is_active) {
+                    stoptimer(A);
+                    A_timer_is_active = false;
+                }
+
+                while (acked[sender_base]) {
+                    acked[sender_base] = false;
+                    sender_base = (sender_base + 1) % SEQ_SPACE;
+                    if (TRACE > 1) printf("----a: moved base to %d\n", sender_base);
+                }
+
+                if (sender_base != next_seqnum) {
+                    if (TRACE > 1) printf("----a: restarting timer\n");
+                    starttimer(A, RTT);
+                    A_timer_is_active = true;
+                }
+            } else {
+                if (TRACE > 1) printf("----a: mid-window ack, timer continues\n");
+            }
+        } else {
+            if (TRACE > 0) printf("----a: duplicate ack %d, skipping\n", packet.acknum);
+        }
+    } else {
+        if (TRACE > 0) printf("----a: ack %d not in window, ignoring\n", packet.acknum);
+    }
+}

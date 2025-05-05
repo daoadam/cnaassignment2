@@ -169,3 +169,78 @@ void A_init(void)
         printf("----a: init done\n");
     }
 }
+
+/* ---------------- receiver side ---------------- */
+
+void B_input(struct pkt packet)
+{
+    if (IsCorrupted(packet)) {
+        if (TRACE > 0) printf("----b: corrupted packet %d, dropping\n", packet.seqnum);
+        return;
+    }
+
+    if (TRACE > 1) printf("----b: packet %d received (expect %d)\n", packet.seqnum, receiver_base);
+
+    struct pkt ack_packet;
+    ack_packet.seqnum = NOTINUSE;
+    ack_packet.acknum = packet.seqnum;
+    for (int i = 0; i < 20; i++) ack_packet.payload[i] = '0';
+    ack_packet.checksum = ComputeChecksum(ack_packet);
+
+    bool in_window = IsInWindow(packet.seqnum, receiver_base, WINDOW_SIZE);
+    bool ok_for_ack = IsInWindow(packet.seqnum, (receiver_base - WINDOW_SIZE + SEQ_SPACE) % SEQ_SPACE, 2 * WINDOW_SIZE);
+
+    if (ok_for_ack) {
+        if (TRACE > 0) printf("----b: sending ack %d\n", packet.seqnum);
+        tolayer3(B, ack_packet);
+    } else {
+        if (TRACE > 0) printf("----b: packet %d is too old, not acking\n", packet.seqnum);
+        return;
+    }
+
+    if (in_window) {
+        if (!received[packet.seqnum]) {
+            if (TRACE > 1) printf("----b: new packet %d in window, buffeer it\n", packet.seqnum);
+            receiver_buffer[packet.seqnum] = packet;
+            received[packet.seqnum] = true;
+
+            if (packet.seqnum == receiver_base) {
+                if (TRACE > 1) printf("----b: delivering in-order packets\n");
+
+                while (received[receiver_base]) {
+                    if (TRACE > 0) printf("----b: delivering %d to app\n", receiver_base);
+                    tolayer5(B, receiver_buffer[receiver_base].payload);
+                    packets_received++;
+                    received[receiver_base] = false;
+                    receiver_base = (receiver_base + 1) % SEQ_SPACE;
+                    if (TRACE > 1) printf("----b: receiver base now %d\n", receiver_base);
+                }
+            }
+        } else {
+            if (TRACE > 1) printf("----b: duplicate packet %d, already buffered\n", packet.seqnum);
+        }
+    } else {
+        if (TRACE > 1) printf("----b: packet %d not in window, ignoring\n", packet.seqnum);
+    }
+}
+
+void B_init(void)
+{
+    receiver_base = 0;
+
+    for (int i = 0; i < SEQ_SPACE; i++) {
+        received[i] = false;
+    }
+
+    if (TRACE > 0) {
+        printf("----b: receiver initialized\n");
+    }
+}
+
+void B_output(struct msg message) {
+    if (TRACE > 0) printf("----b: b_output not implemented lol\n");
+}
+
+void B_timerinterrupt(void) {
+    if (TRACE > 0) printf("----b: no timer for b anyway\n");
+}

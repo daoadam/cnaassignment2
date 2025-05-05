@@ -136,3 +136,36 @@ void A_input(struct pkt packet)
         if (TRACE > 0) printf("----a: ack %d not in window, ignoring\n", packet.acknum);
     }
 }
+/* called when sender's timer fires */
+void A_timerinterrupt(void)
+{
+    A_timer_is_active = false;
+
+    if (sender_base == next_seqnum) {
+        if (TRACE > 0) printf("----a: timer went off but nothing to resend\n");
+        return;
+    }
+
+    if (TRACE > 0) printf("----a: timeout, resending packet %d\n", sender_base);
+    tolayer3(A, sender_buffer[sender_base]);
+    packets_resent++;
+
+    starttimer(A, RTT);
+    A_timer_is_active = true;
+}
+
+/* sets up the sender at sim start */
+void A_init(void)
+{
+    sender_base = 0;
+    next_seqnum = 0;
+    A_timer_is_active = false;
+
+    for (int i = 0; i < SEQ_SPACE; i++) {
+        acked[i] = false;
+    }
+
+    if (TRACE > 0) {
+        printf("----a: init done\n");
+    }
+}
